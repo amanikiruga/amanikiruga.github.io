@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Software</title>
+        <link rel="stylesheet" href= {{ "style/main.css" | relative_url }} />
+    </head>
+    <body>
+        <div class="header-other navbar">
+            <a href="/">HOME</a>
+            <a href="/aiml">AI/ML</a>
+            <a href="/software.html" class="active">SOFTWARE</a>
+            <a href="/blog">BLOG</a>
+            <a href="/" id="logo" class="left">Amani Kiruga</a>
+        </div>
+
+        <div class="side-nav">
+            {% for category in site.data.categories.items %}
+            <h3 class="category">{{ category.name }}</h3>
+            <ul>
+                {% assign sortedPosts = site.posts | sort: "date" %} {% for post
+                in sortedPosts %} {% if post.category == category.name %}
+                <li
+                    class="
+                        item
+                        {%
+                        if
+                        page.url
+                        ==
+                        post.url
+                        %}
+                        active
+                        {%
+                        endif
+                        %}
+                    "
+                >
+                    <a href="{{ post.url }}">{{ post.title }}</a>
+                </li>
+                {% endif %} {% endfor %}
+            </ul>
+            {% endfor %}
+
+            <!--
+            <ul>
+                <li class="category"><a href="#"> CISC275</a></li>
+                <li class="item"><a href="#"> ChangeLog</a></li>
+                <li class="item">
+                    <a href="#"> Intro Javascript (Tutorial) </a>
+                </li>
+                <li class="item">
+                    <a href="#"> Intro to FlexBox CSS (Tutorial) </a>
+                </li>
+                <li class="item">
+                    <a href="#"> Grocery Price Checker (Project) </a>
+                </li>
+            </ul>
+        --></div>
+        <div class="content">{{content}}</div>
+    </body>
+</html>
