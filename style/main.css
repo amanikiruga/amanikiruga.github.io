@@ -14,6 +14,19 @@ body {
     font-size: 32px;
     color: white;
 }
+.social-icons a {
+    text-decoration: none;
+    color: white;
+}
+.portfolio-github {
+    margin-top: 18px;
+    margin-left: 18px;
+}
+.portfolio-github a {
+    text-decoration: none;
+    color: black;
+    font-size: 17px;
+}
 .header-other {
     position: relative;
     padding: 10px;
