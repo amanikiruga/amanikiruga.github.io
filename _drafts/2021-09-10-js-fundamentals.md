@@ -75,10 +75,10 @@ x.length //3
 x[0] // 'HI'
 x[1] // undefined
 x[2] // 'Everyone!'
-Trailing commas, however, are ignnored. 
+Trailing commas, however, are ignored. 
 let funny = ['A', , 'Man', 'Walked', ,]
 funny.length //5, last comma only is ignored
-bad practice to use commas, better use undefined
+its not best practice to use commas, better use undefined
  ```
 
  ### Numbers
