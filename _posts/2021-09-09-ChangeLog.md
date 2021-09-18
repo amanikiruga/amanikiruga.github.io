@@ -24,6 +24,14 @@ Points before a date title change means they were all done on that date. I do th
   * Followed tutorial on YouTube
 * [2021-09-13] Created Todo and Changelog 
 
+## Project Milestone 2 
+* [2021-09-16] Started TicTacToe project by following react.js tutorial  
+  * [2021-09-17] Modified project by adding more functionality such as move history
+  * [2021-09-18] Added even more functionality such as move history sorting. 
+* [2021-09-18] Wrote post about TicTacToe project 
+* Learn about React Hooks by following a tutorial on react.js
+* Write post about tutorial on React Hooks
+
 <!-- 
 ### Added
 ### Changed
