@@ -32,9 +32,16 @@ Points before a date title change means they were all done on that date. I do th
 * Learn about React Hooks by following a tutorial on react.js
 * Write post about tutorial on React Hooks
 
-## Project Milestone 3
+## Final Portfolio
 * [2021-02-22] Went through tutorial for TypeScript fundamentals
   * Wrote short post about it
+* [2021-02-25] Do Dr. Bart's project with modification
+  * Wrote short post about it 
+* [2021-02-25] Learned about Flexbox and wrote a short post explaining it
+* [2021-02-27] Learned basics about testing in React wrote short post explaining what I learned. 
+* [2021-02-28] Started on Learn Breeds react project
+  * Wrote short post about it 
+  * Published on gh-pages
 
 <!-- 
 ### Added
