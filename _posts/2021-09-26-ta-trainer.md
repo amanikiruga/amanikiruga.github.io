@@ -16,6 +16,8 @@ Although I didn't drastically change the styling, it pretty much still looks lik
 ### Functionality
 Since I didn't use the DND card list that Dr. Bart used, I also had to implement the dynamic list functionality including deleting. 
 
+I also created the modal popup including the form text entry from scratch which I had implemented earlier as an independent React toy-project. 
+
 ## Things I learned and Technologies Used
 To improve my **git** skills, I used branches to separate the original project from the tutorial and the modified one. 
 
