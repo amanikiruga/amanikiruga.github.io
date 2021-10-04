@@ -5,7 +5,7 @@ layout: post
 permalink: /software/ta-trainer
 ---
 # {{page.title}}
-[demo](https://amanikiruga.github.io/react-sample-app/) | 
+[demo](https://amanikiruga.github.io/ta-trainer/) | 
 [github](https://github.com/amanikiruga/ta-trainer) | 
 [tutorial](https://www.youtube.com/watch?v=q8eYF6cUi5c)
 
