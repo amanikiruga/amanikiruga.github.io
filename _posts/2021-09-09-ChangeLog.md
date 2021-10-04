@@ -42,6 +42,9 @@ Points before a date title change means they were all done on that date. I do th
 * [2021-02-28] Started on Learn Breeds react project
   * Wrote short post about it 
   * Published on gh-pages
+* [2021-09-30] Work on CISC275 Rewind
+  * published on gh-pages
+  * Wrote short post about it
 
 <!-- 
 ### Added
