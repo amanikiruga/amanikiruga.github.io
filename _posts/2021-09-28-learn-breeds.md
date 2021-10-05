@@ -6,7 +6,7 @@ permalink: /software/learn-breeds
 ---
 # {{page.title}}
 [demo](https://amanikiruga.github.io/learn-breeds/) | 
-[github](https://github.com/amanikiruga/learn-breeds) | 
+[github](https://github.com/amanikiruga/learn-breeds) 
 
 ## Overview
 I had a game in mind to learn different dog breeds. I decided to implement it using React and TypeScript. This is my first solo project using React.
@@ -27,6 +27,9 @@ I used the following technologies:
 In order to track progress and chunk out todos, I decided to use **Github Project Board** as well as starting and resolving **issues**. In addition, I mostly worked on the features-bugs branch and merged to main only when I had completed a functionality. 
 ### Mockup Creating
 Although not required, I implemented a small mockup on **Figma**, shown here: 
+![app mockup](res/learn-breeds-mockup.png)
+
+
 ### MVVM
 I decided to use an application programming model similar to Model-View-Viewmodel when creating the application. 
 #### Repository
