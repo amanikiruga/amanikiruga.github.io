@@ -45,6 +45,8 @@ Points before a date title change means they were all done on that date. I do th
 * [2021-09-30] Work on CISC275 Rewind
   * published on gh-pages
   * Wrote short post about it
+* [2021-10-06] Started Study Cards
+  * Deployed to gh-pages and wrote short post about it
 
 <!-- 
 ### Added
