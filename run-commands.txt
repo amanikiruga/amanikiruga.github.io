@@ -1,3 +1,5 @@
 # Running locally instructions 
 1. `source venv/bin/activate`
 2. `bundle exec jekyll serve --lsi`
+
+nothing
