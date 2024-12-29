@@ -1,4 +1,0 @@
-User-agent: *
-Disallow:
-
-Sitemap: https://amanikiruga.github.io/sitemap.xml
