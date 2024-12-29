@@ -1,4 +1,4 @@
-
+<!-- 
 
 My research focuses on enhancing language model interactions to be more akin to human-like communication. Having inspired by how humans modify their knowledge and beliefs through feedback received in natural language, my specific interest lies in how such feedback, expressed in natural language, can *guide a language model’s outputs to align with facts, requirements, natural phenomena, or preferences*. My aim is to develop methods that enable language models to incorporate this feedback consistently, thereby enhancing their alignment, reliability, and safety.
 
@@ -33,4 +33,4 @@ How to make language models safer with language feedback?
 </div>
 
 <h2 style="margin-top: 1rem;">biography</h2>
-{%- include_relative bio.md %}
+{%- include_relative bio.md %} -->

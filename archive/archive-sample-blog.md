@@ -1,4 +1,4 @@
----
+<!-- ---
 layout: post
 title:  Notes from The Science of Deep Learning Colloquia
 date: 2019-03-15 21:01:00
@@ -21,4 +21,4 @@ We attended The Science of Deep Learning Colloquia which is a part of Arthur M. 
 </ul>
 <!--more-->
 
-<script src="https://gist.github.com/ekinakyurek/4690e968e0b827de0c39a363e4c75c96.js"></script>
+<script src="https://gist.github.com/ekinakyurek/4690e968e0b827de0c39a363e4c75c96.js"></script> -->
