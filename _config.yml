@@ -3,20 +3,20 @@
 # -----------------------------------------------------------------------------
 
 title: blank # the website title (if blank, full name will be used instead)
-first_name: Afra Feyza
+first_name: Amani
 middle_name:
-last_name: Akyürek
+last_name: Kiruga
 email:
 description: > # the ">" symbol means to ignore newlines until "footer_text:"
-  Afra Feyza Akyürek | PhD student in computer science
+  "What is the Kolmogorov complexity of the universe?"
 footer_text: >
   ""
-keywords: ai, ml, nlp, machine-learning, artificial-intelligence, natural-language-processing, computer science
+keywords: ai, ml, cv, machine-learning, artificial-intelligence, computer-vision, robotics, computer science
 
 lang: en # the language of your site (for example: en, fr, cn, ru, etc.)
 icon: favicon_32.png  # the emoji used as the favicon (alternatively, provide image name in /assets/img/)
 
-url: https://feyzaakyurek.github.io # the base hostname & protocol for your site
+url: https://amanikiruga.github.io # the base hostname & protocol for your site
 baseurl:  # the subpath of your site, e.g. /blog/
 last_updated: false # set to true if you want to display last updated in the footer
 impressum_path:  # set to path to include impressum link in the footer, use the same path as permalink in a page, helps to conform with EU GDPR
@@ -69,13 +69,13 @@ og_image: # The site-wide (default for all links) Open Graph preview image
 # Social integration
 # -----------------------------------------------------------------------------
 
-github_username: feyzaakyurek
+github_username: amanikiruga
 gitlab_username: # your GitLab user name
-twitter_username: afeyzaakyurek
+twitter_username: amanikiruga
 mastodon_username: # your mastodon instance+username in the format instance.tld/@username
-linkedin_username: afrafeyzaakyurek
+linkedin_username: amanikiruga
 telegram_username: # your Telegram user name
-scholar_userid: RXsYj9IAAAAJ
+scholar_userid: # your Google Scholar ID
 semanticscholar_id: # your Semantic Scholar ID
 whatsapp_number: # your WhatsApp number (full phone number in international format. Omit any zeroes, brackets, or dashes when adding the phone number in international format.)
 orcid_id: # your ORCID ID
@@ -121,7 +121,7 @@ bing_site_verification:  # out your bing-site-verification ID (Bing Webmaster)
 # -----------------------------------------------------------------------------
 
 blog_name: Posts # blog_name will be displayed in your blog page
-blog_nav_title: blog # your blog must have a title for it to be displayed in the nav bar
+blog_nav_title:  # your blog must have a title for it to be displayed in the nav bar
 blog_description: my casual writings
 permalink: /blog/:year/:title/
 
@@ -180,7 +180,7 @@ collections:
     permalink: /projects/:path/
 
 announcements:
-  enabled: true
+  enabled: false
   scrollable: true # adds a vertical scroll bar if there are more than 3 news items
   limit: 100 # leave blank to include all the news in the `_news` folder
 
@@ -281,8 +281,8 @@ display_categories: [] # these categories will be displayed on the front page of
 
 scholar:
 
-  last_name: [Akyürek]
-  first_name: [Afra Feyza]
+  last_name: [Kiruga]
+  first_name: [Amani]
 
   style: apa
   locale: en

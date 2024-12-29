@@ -1,8 +1,7 @@
 github_users:
-  - feyzaakyurek
+  - amanikiruga
 
 github_repos:
-  - feyzaakyurek/rl4f
-  - feyzaakyurek/dune
-  - feyzaakyurek/subspace-reg
-  - feyzaakyurek/bbnli
+  - amanikiruga/emojigan
+  - amanikiruga/pick-a-paw
+  - amanikiruga/marchmadness-scraper

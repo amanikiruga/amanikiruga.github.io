@@ -2,8 +2,8 @@
 layout: page
 title: projects
 permalink: /projects/
-description: some of my non-published but fun projects.
-nav: true
+description: 
+nav: false
 nav_order: 4
 display_categories: [work, fun]
 horizontal: false
