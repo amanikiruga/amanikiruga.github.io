@@ -219,6 +219,7 @@ exclude:
   - Gemfile.lock
   - vendor
   - archive
+  - todos.md
 keep_files:
   - CNAME
   - .nojekyll
