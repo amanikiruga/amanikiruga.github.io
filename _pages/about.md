@@ -20,6 +20,6 @@ social: false  # includes social icons at the bottom of the page
 ---
 I am an incoming PhD student at Harvard working with [Yilun Du](https://yilundu.github.io) on vision and generative modelling. 
 
-I am currently working on 3D vision with [Ayush Tewari](https://ayushtewari.com) and [Vincent Sitzmann](https://vincentsitzmann.com) at MIT. I graduated from the University of Delaware in 2024 and I am in-between undergrad and PhD at the moment. I am deeply interested in 3D generalization (or lack thereof) and robotics applications.
+I am currently working on 3D vision with [Ayush Tewari](https://ayushtewari.com) and [Vincent Sitzmann](https://vincentsitzmann.com) at MIT. I graduated with my bachelor's from the University of Delaware in 2024. I am deeply interested in generative models, 3D generalization (or lack thereof) and robotics applications.
 
 Find my resume here: [resume](/resume/)
