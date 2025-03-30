@@ -1,6 +1,7 @@
 # TODOs 
 - [ ] Add projects: 
     - [ ] Atom project 
+    - [ ] What is the meaning of that word
     - [ ] Media lab news project 
     - [ ] EmojiGan projec
     - [ ] Pick-a-paw
