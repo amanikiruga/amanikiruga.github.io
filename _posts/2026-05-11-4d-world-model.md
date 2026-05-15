@@ -2,7 +2,7 @@
 layout: distill
 title: "Unified Generative-Predictive Modeling for 4D Scene Understanding"
 description: "A single diffusion transformer treats RGB video, depth, and camera rays as symmetric modalities, casting visual generation and geometric prediction as the same conditional-completion problem. The result is one model that does camera-controlled video synthesis, depth, and pose, and improves itself by drawing more samples at inference time."
-date: 2025-12-11
+date: 2026-05-11
 featured: true
 tags: research
 categories:
