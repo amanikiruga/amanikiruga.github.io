@@ -18,7 +18,7 @@ latest_posts: false  # includes a list of the newest posts
 selected_papers: true # includes a list of papers marked as "selected={true}"
 social: false  # includes social icons at the bottom of the page
 ---
-I am a PhD student at Harvard working with [Yilun Du](https://yilundu.github.io) on vision and generative modelling. I am currently interested in video generative modeling, robust 3D scene understanding, and robotic applications. 
+I am a PhD student at Harvard working with [Yilun Du](https://yilundu.github.io) on vision and generative modelling. I also frequently collaborate closely with [Ayush Tewari](https://ayushtewari.com/) from University of Cambridge. I am currently interested in video generative modeling, robust 3D scene understanding, and robotic applications. 
 
 I graduated with my bachelor in Computer Science from the [University of Delaware](https://www.udel.edu) in 2024. 
 
