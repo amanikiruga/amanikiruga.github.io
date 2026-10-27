@@ -1,8 +1,9 @@
 ---
 layout: distill
-title: "Unified Generative-Predictive Modeling for 4D Scene Understanding"
-description: "A single diffusion transformer treats RGB video, depth, and camera rays as symmetric modalities, casting visual generation and geometric prediction as the same conditional-completion problem. The result is one model that does camera-controlled video synthesis, depth, and pose, and improves itself by drawing more samples at inference time."
+title: "UGG: Unified Generative Geometry Model"
+description: "One model learns appearance, depth, and camera motion through conditional completion. We explain how joint training helps, and how image-based verification selects among geometric predictions at inference time."
 date: 2026-05-11
+last_updated: 2026-10-27
 featured: true
 tags: research
 categories:
@@ -16,22 +17,17 @@ authors:
 bibliography: 2025-12-11-4d-world-model.bib
 
 toc:
-  - name: 1 &middot; Why unify generation and prediction?
-  - name: 2 &middot; Background and prior work
-  - name: 3 &middot; Method
+  - name: 1 · Why unify generation and prediction?
+  - name: 2 · Putting appearance and geometry in the same representation
+  - name: 3 · Noise as a way to specify the task
+  - name: 4 · Does joint training actually help?
+  - name: 5 · One model, three tasks
     subsections:
-      - name: 3.1 A shared 4D scene representation
-      - name: 3.2 Mixture-of-Transformers backbone
-      - name: 3.3 Conditional completion via diffusion forcing
-      - name: 3.4 Heterogeneous training
-      - name: 3.5 Inference and test-time search
-  - name: 4 &middot; Experiments
-    subsections:
-      - name: 4.1 Camera-controlled generation
-      - name: 4.2 Camera pose estimation
-      - name: 4.3 Depth prediction
-      - name: 4.4 Test-time search
-  - name: 5 &middot; Discussion, limitations, and outlook
+      - name: Camera-controlled generation
+      - name: Camera pose estimation
+      - name: Depth prediction
+  - name: 6 · Sampling a prediction, then checking it against the images
+  - name: 7 · What this changes, and what remains difficult
 
 _styles: >
   d-article table { font-size: 0.78rem; border-collapse: collapse; }
@@ -58,290 +54,358 @@ _styles: >
   d-article .r4d-cell-label { font-size:0.72em; text-align:center; padding:2px 0 4px 0; opacity:0.75; }
   d-article .r4d-cell-label.ours { color:var(--global-theme-color); font-weight:600; opacity:1; }
   d-article .r4d-cell video, d-article .r4d-cell img { width:100%; height:auto; border-radius:3px; display:block; }
+  d-article .result-table { max-width:100%; overflow-x:auto; margin:1rem 0; }
+  d-article .result-table table { width:max-content; min-width:100%; font-variant-numeric:tabular-nums; }
+  d-article .result-table th, d-article .result-table td { white-space:nowrap; }
+  d-article .result-table caption { caption-side:top; text-align:left; font-weight:600; padding:0 0 0.5rem; }
+  d-article .result-table tbody th { text-align:left; font-weight:400; }
+  d-article .result-table .oracle { opacity:0.8; border-top:2px solid var(--global-divider-color); }
+  d-article details { margin:1.1rem 0; padding:0.6rem 0; border-top:1px solid var(--global-divider-color); border-bottom:1px solid var(--global-divider-color); }
+  d-article summary { cursor:pointer; font-weight:600; }
 ---
 
-## 1 &middot; Why unify generation and prediction?
+## 1 · Why unify generation and prediction?
 
-A photo or a short video shows only one slice of a scene: visible surfaces from one viewpoint at one moment in time. Robust 4D understanding has to recover the things the camera *did not* capture: the unobserved side of an object, the camera's pose, the metric depth at every pixel, and how those quantities evolve through time. The field has historically split this job in two.
+A photo or a short video shows only one slice of a scene: visible surfaces from one viewpoint at one moment in time. To understand the scene, we have to infer what the camera did not capture. How far away are the surfaces? Where did the camera move? What would we see from another viewpoint, or a moment later? These questions connect appearance, geometry, and time. We refer to this as *4D scene understanding*.
 
-**Feedforward predictors** regress geometry directly from pixels, often with strong supervision and large datasets <d-cite key="wang2023dust3r,wang2025vggt,wang2025pi3"></d-cite>. They are fast and accurate inside their training distribution, but they collapse to a single deterministic answer and degrade when the observations are sparse, ambiguous, or out of distribution.
+The field has historically split this job in two. Geometric predictors estimate depth and camera pose from images. Video generators synthesize what a scene might look like as it evolves. Both have made substantial progress, but they are usually trained to answer different questions. A predictor typically returns one geometric estimate; a video generator can produce many plausible videos without explicitly recovering the geometry behind them.
 
-**Generative video models** learn rich appearance priors <d-cite key="wan2025wan"></d-cite> and can hallucinate plausible completions, but they have no native notion of metric depth or 3D structure; their outputs can look right while being geometrically inconsistent <d-cite key="ren2025gen3c,huang2025voyager"></d-cite>.
+We ask whether these capabilities can be learned together. RGB describes appearance, depth describes visible 3D structure, and camera pose describes viewpoint. Depending on what we observe, any of these can be an input or an output.
 
-Chaining the two pipeline-style works only when one stage is willing to treat the other's output as ground truth, which rarely holds.
-
-<div class="scientific-q">
-<b>Scientific question.</b> Can a <i>single</i> model do both, by treating generation and prediction as <i>different conditional queries</i> on the same joint distribution over appearance and geometry, and does that unification produce real, measurable benefits (heterogeneous training, posterior search, robustness to sparse observations)?
-</div>
-
-RGB, depth, and camera pose are complementary observations of a dynamic scene: RGB describes appearance, depth describes visible 3D structure, and camera pose describes viewpoint. Depending on what is observed, the missing components may be future RGB frames, dense depth, or camera geometry. We answer the question above with a unified generative-predictive model that represents RGB, depth, and camera rays as spatially aligned tokens in a shared multimodal transformer and trains it via *diffusion forcing* <d-cite key="chen2024diffusionforcing"></d-cite>. The clean/noisy pattern across modality-frame groups specifies the task. The same weights then perform camera-controlled video generation, dense video depth estimation, and camera pose recovery, and crucially, the generative formulation lets us *sample* multiple 4D scene hypotheses at inference time and pick the one with the lowest cross-modal reprojection error.
-
-<div class="l-page">
-  <figure>
-    <img src="{{ '/assets/img/4d-world-model/teaser2.png' | relative_url }}" alt="One model, three modalities, many tasks."/>
-    <figcaption>
-      <b>Figure 1 &middot; Unified conditional completion.</b> Given any partial observation, such as a text prompt, a single RGB image, an RGB sequence, camera poses (rays), or depth, the same model fills in the rest. Camera-controlled generation, depth estimation, and pose recovery are different masks on the same denoiser.
-    </figcaption>
-  </figure>
-</div>
-
-## 2 &middot; Background and prior work
-
-**Geometric prediction.** Feedforward 3D / 4D regressors (DUSt3R <d-cite key="wang2023dust3r"></d-cite>, VGGT <d-cite key="wang2025vggt"></d-cite>, $\pi^3$ <d-cite key="wang2025pi3"></d-cite>) map pixels to depth, point maps, or pose in one pass. Recent diffusion-based methods adapt generative priors for specific geometric outputs: RayDiffusion <d-cite key="zhang2024raydiffusion"></d-cite> for camera rays, Marigold <d-cite key="ke2023marigold"></d-cite>, DepthCrafter <d-cite key="hu2024depthcrafter"></d-cite>, and ChronoDepth <d-cite key="shao2025chronodepth"></d-cite> for depth, and Geo4D <d-cite key="jiang2025geo4d"></d-cite> for joint 4D reconstruction. Each is still a *unidirectional* RGB &rarr; geometry map trained on strictly paired data.
-
-**Geometry-aware video generation.** Video world models have moved from pure pixel synthesis <d-cite key="wan2025wan"></d-cite> toward injecting 3D structure for spatial consistency <d-cite key="ren2025gen3c,huang2025voyager"></d-cite> or accepting camera trajectories as control <d-cite key="he2024cameractrl,zhou2025seva"></d-cite>. The closest concurrent work (One4D <d-cite key="mione4d2025"></d-cite> and WorldReel <d-cite key="fang2025worldreel"></d-cite>) jointly emits RGB plus 4D geometric quantities, but along fixed input/output paths.
-
-**The gap we close.** All of the above either (i) treat geometry as a byproduct of generation, or (ii) treat generation as one-way prediction. None of them treats RGB, depth, and camera geometry as *symmetric* modalities in a single any-to-any conditional distribution. Doing so requires (a) modality-symmetric tokenization, (b) a training objective that handles heterogeneous, partially annotated data, and (c) an inference procedure that exploits the joint distribution. The Mixture-of-Transformers <d-cite key="liang2024mot"></d-cite> backbone plus diffusion forcing <d-cite key="chen2024diffusionforcing,song2025dfot"></d-cite> are the right tools, and that is what we use.
-
-Philosophically the formulation echoes *perception as inference* from cognitive science <d-cite key="kersten2004object,yuille2006vision,battaglia2013simulation"></d-cite>: scene understanding is generating-and-checking, not one-pass regression.
-
-## 3 &middot; Method
-
-### 3.1 A shared 4D scene representation
-
-A 4D scene is a sequence of $N=50$ frames; each frame $i$ has an RGB image $I_i$, a depth map $D_i$, and camera parameters $C_i = (K_i, T_i)$.
-
-To put camera geometry in the same spatial container as RGB and depth we convert $C_i$ into a **dense Plücker ray map** <d-cite key="sitzmann2021lfn"></d-cite>:
-
-$$R_i(u,v) = \big(\,\mathbf{d}_i(u,v),\ \mathbf{m}_i(u,v)\,\big), \qquad \mathbf{m}_i(u,v) = \mathbf{o}_i \times \mathbf{d}_i(u,v),$$
-
-where $\mathbf{o}_i$ is the camera center and $\mathbf{d}_i(u,v)$ the unit viewing direction in world coordinates. Ray direction carries orientation + intrinsics; ray moment carries the camera center up to a global scene scale. Unlike raw extrinsics or token-form camera embeddings, the per-pixel ray map places camera geometry on the same $(u,v,i)$ grid as RGB and depth, so cross-modal attention and reprojection are well-defined. Depth is reparameterized to a bounded disparity-like channel
-
-$$\tilde{D} = \frac{2}{1 + D/s} - 1 \in [-1, 1],$$
-
-with a single clip-level scale $s$ that is also applied to the ray moments. This shared normalization is what makes cross-modal constraints like photometric reprojection numerically well defined.
-
-The full scene is then $\{(I_i, D_i, R_i)\}_{i=1}^{N}$: three image-shaped streams over the same $(u,v,i)$ grid.
-
-### 3.2 Mixture-of-Transformers backbone
-
-<div class="l-page">
-  <figure>
-    <img src="{{ '/assets/img/4d-world-model/method2.png' | relative_url }}" alt="Generative-predictive transformer architecture."/>
-    <figcaption>
-      <b>Figure 2 &middot; Architecture.</b> RGB and depth are encoded by a frozen Wan2.1 VAE; ray maps are packed directly into latents at the VAE resolution. Modality-specific patch embeddings and feed-forward layers preserve per-modality statistics, while a <i>shared multimodal self-attention</i> mixes information across appearance, depth, and rays. Per-token diffusion timesteps drive adaptive modulation.
-    </figcaption>
-  </figure>
-</div>
-
-We initialize from **Wan2.1-T2V-1.3B** <d-cite key="wan2025wan"></d-cite> (a 1.3B-parameter video DiT) and extend it into a four-stream Mixture-of-Transformers <d-cite key="liang2024mot"></d-cite>:
-
-$$z = [\,z^I;\ z^D;\ z^{R_d};\ z^{R_m}\,],$$
-
-with separate streams for RGB, depth, ray direction, and ray moment. Each clip is 50 frames at $240\times320$; after VAE encoding (stride $4\times8\times8$) each modality becomes a $14 \times 30 \times 40$ latent with 16 channels. A 3D patch size of $[1,2,2]$ yields $4{,}200$ tokens per modality and $16{,}800$ tokens per clip. Ray maps bypass the VAE; four consecutive 3-channel ray frames pack into the first 12 channels of a 16-channel latent so ray tokens stay aligned in space and time with RGB/depth.
-
-The transformer has 30 layers, hidden 1536, FFN 8960, 12 heads. Queries / keys / values / FFNs are **stream-specific**; the attention itself is **shared** across all streams, so RGB tokens attend to depth and ray tokens (and vice versa) inside every block. Text conditioning is injected via cross-attention with Wan's text path (4096-dim embeddings, max 512 tokens). We add 3D RoPE over latent $(u,v,i)$ coordinates so the model reasons jointly over space, time, and modality.
-
-**Initialization from the RGB checkpoint.** Extending an RGB-only video DiT to four modality streams without retraining from scratch hinges on a careful copy: RGB patch-embedding and output-head weights initialize the new depth and ray-map patch-embeddings and output heads, while attention, cross-attention, normalization, feed-forward, time-embedding, and text-conditioning weights are copied into each modality stream when shapes are compatible. This preserves the pretrained video prior and lets the new modality branches specialize during finetuning.
-
-### 3.3 Conditional completion via diffusion forcing
-
-Diffusion forcing <d-cite key="chen2024diffusionforcing"></d-cite> assigns each token an independent diffusion level $t_j \in [0,1]$:
-
-$$\tilde{z}_j = (1 - t_j)\,z_j^0 + t_j\,\epsilon_j, \quad \epsilon_j \sim \mathcal{N}(0, I).$$
-
-$t_j=0$ marks an observed context token, $t_j=1$ a fully noised target, and intermediate values a partially corrupted token. The clean/noisy *pattern* over modality-frame groups specifies the task (generation, prediction, interpolation, or anything in between) without changing the architecture.
+Our work, **UGG: Unified Generative Geometry Model**, treats generation and geometric prediction as conditional completion of the same scene. The same model generates video along a camera trajectory, predicts depth, and recovers camera pose. Changing the task changes which parts of the scene we reveal. This also lets us sample several possible geometric explanations and check them against the images at inference time.
 
 <div class="l-body">
-  <figure>
-    <img src="{{ '/assets/img/4d-world-model/diffusion_forcing.png' | relative_url }}" alt="Noise as mask."/>
-    <figcaption>
-      <b>Figure 3 &middot; Noise as mask.</b> Different per-token noise patterns over RGB / depth / ray tokens select different tasks from one model: image-to-video, camera-controlled video, depth from RGB, pose from RGB.
-    </figcaption>
-  </figure>
+<figure>
+<img src="{{ '/assets/img/4d-world-model/teaser2.png' | relative_url }}" alt="RGB, depth, and camera geometry as components of one scene.">
+<figcaption>The same scene can be queried in different ways: reveal images to infer geometry, or reveal camera geometry and visual context to generate missing images.</figcaption>
+</figure>
 </div>
 
-We use a shifted flow-matching schedule $t' = \alpha t / (1 + (\alpha-1)t)$ with $\alpha=3$ and predict the velocity $v^\star = \epsilon - z_0$. The loss is
+## 2 · Putting appearance and geometry in the same representation
 
-$$\mathcal{L} = \mathbb{E}_{t,\epsilon}\!\left[\sum_j a_j \lambda_{m(j)} \big\lVert \hat{v}_j - v_j^\star \big\rVert_2^2\right],$$
+For each frame, we represent the scene with an RGB image, a depth map, and a camera-ray map. RGB and depth already live on a pixel grid. A camera is usually represented by a small collection of parameters: position, rotation, and intrinsics, which describe how viewing directions map to pixels. We instead represent the camera by the ray passing through each pixel.
 
-where $a_j \in \{0,1\}$ is the availability mask (1 if token $j$ has ground-truth supervision in this sample) and $\lambda_{m(j)}$ balances the four streams (RGB, depth, ray direction, ray moment). Five **conditioning patterns** are sampled during training, restricted by what each dataset annotates:
+A ray tells us where the camera is and which direction that pixel looks into the world. We use a Plücker representation: a direction $\mathbf d$ and a moment $\mathbf m=\mathbf o\times\mathbf d$, where $\mathbf o$ is the camera center. This turns camera geometry into an image-shaped modality, aligned with RGB and depth. Depth and camera positions use a shared scene scale, so they describe compatible geometry.
 
-1. First RGB frame &rarr; rest of RGB + depth + rays (scene completion)
-2. All RGB &rarr; depth + rays (RGB-to-geometry)
-3. First+last RGB + all rays &rarr; middle RGB + depth (camera-controlled interpolation)
-4. First RGB + all rays &rarr; rest of RGB + depth (camera-controlled extrapolation)
-5. First RGB + all depth &rarr; rest of RGB + rays (depth-conditioned generation)
+The model can now exchange information between modalities at corresponding positions. A depth boundary, an image edge, and a change in viewing direction are represented on aligned grids rather than through unrelated interfaces.
 
-**Imperfect history during training.** Context tokens are not always forced to be perfectly clean: with probability $0.5$ they are clamped at $t_j=0$, and otherwise they receive a random lower noise level. Target tokens receive independently sampled higher noise levels. This teaches the model to use both perfectly clean context and imperfect context, which improves robustness at inference time when conditioning on generated or partially corrupted history.
+We initialize from the Wan2.1-T2V-1.3B video model <d-cite key="wan2025wan"></d-cite> and extend it with depth and camera-ray streams. RGB and depth use a frozen video autoencoder; rays are packed directly into aligned latents. A Mixture-of-Transformers backbone <d-cite key="liang2024mot"></d-cite> gives RGB, depth, and rays their own projections and feed-forward layers, while joint attention lets their tokens communicate. Ray directions and moments occupy separate latent streams but share the ray-branch transformer weights.
 
-### 3.4 Heterogeneous training
-
-This is where the formulation pays off. Each training sample is represented in a common (RGB, depth, ray-map) format with a modality-availability mask; missing streams are filled with Gaussian placeholders, forced to maximum noise, and zeroed out of the loss. An RGB-only video clip and a fully annotated synthetic clip train the *same* model side by side; the loss simply lights up different terms. The per-modality losses are equally weighted, $\mathcal{L} = \tfrac{1}{4}(\mathcal{L}\_I + \mathcal{L}\_{R_d} + \mathcal{L}\_{R_m} + \mathcal{L}\_D)$, with availability masking applied within each term.
-
-We train on a heterogeneous mixture of eight real, synthetic, and robotic video datasets that together cover different subsets of RGB, depth, camera pose, and text supervision (Table 1). Depth and pose for DL3DV-10K and ScanNet++ are obtained via the VIPE annotation pipeline <d-cite key="huang2025vipe"></d-cite>. Captions are native for SpatialVID and AgiBot World; we additionally annotate DL3DV-10K and RealEstate10K with scene-level description prompts; the remaining datasets train without text conditioning. 7-Scenes is held out for evaluation only.
-
-**Table 1 &middot; Training datasets and modality availability.** ✓ = supervised; -- = not used; *(VIPE)* = annotated via the VIPE pipeline; *native* = captions provided by the dataset; *scene prompt* = scene-level descriptions we annotated.
-
-<div style="overflow-x:auto;">
-<table>
-<thead>
-<tr><th>Dataset</th><th>Type</th><th>RGB</th><th>Depth</th><th>Camera pose</th><th>Text</th></tr>
-</thead>
-<tbody>
-<tr><td>RealEstate10K</td><td>real</td><td>✓</td><td>--</td><td>✓</td><td>scene prompt</td></tr>
-<tr><td>DL3DV-10K</td><td>real</td><td>✓</td><td>✓ <i>(VIPE)</i></td><td>✓ <i>(VIPE)</i></td><td>scene prompt</td></tr>
-<tr><td>SpatialVID</td><td>real</td><td>✓</td><td>--</td><td>✓</td><td>native</td></tr>
-<tr><td>ScanNet++</td><td>real</td><td>✓</td><td>✓ <i>(VIPE)</i></td><td>✓ <i>(VIPE)</i></td><td>--</td></tr>
-<tr><td>AgiBot World</td><td>robotic</td><td>✓</td><td>--</td><td>--</td><td>native</td></tr>
-<tr><td>OmniWorld</td><td>synthetic</td><td>✓</td><td>✓</td><td>✓</td><td>--</td></tr>
-<tr><td>Virtual KITTI 2</td><td>synthetic</td><td>✓</td><td>✓</td><td>✓</td><td>--</td></tr>
-<tr><td>PointOdyssey</td><td>synthetic</td><td>✓</td><td>✓</td><td>✓</td><td>--</td></tr>
-<tr><td><i>7-Scenes</i></td><td><i>eval-only</i></td><td>✓</td><td>✓</td><td>✓</td><td>--</td></tr>
-</tbody>
-</table>
+<div class="l-body">
+<figure>
+<img src="{{ '/assets/img/4d-world-model/method2.png' | relative_url }}" alt="Multimodal transformer for RGB, depth, and camera rays.">
+<figcaption>RGB, depth, and camera rays enter aligned latent streams. Modality-specific layers preserve their representations; joint self-attention exchanges information across them.</figcaption>
+</figure>
 </div>
 
-### 3.5 Inference and test-time search
+## 3 · Noise as a way to specify the task
 
-At inference, observed tokens are *clamped* to their clean values at every denoising step and assigned $t_j=0$; unknown tokens are denoised from Gaussian noise with **UniPC** (40 steps). A 50-frame clip takes $\sim$1 minute on one H100.
+A diffusion model learns to recover data from noise. We build on *diffusion forcing*, <d-cite key="chen2024diffusionforcing"></d-cite> which allows different parts of a sequence to have different noise levels. We extend this across both frames and modalities. An observed component is clean; a missing component begins as noise.
 
-We additionally use **history guidance** <d-cite key="song2025dfot"></d-cite>, which is classifier-free guidance applied to the *observed context* rather than the text prompt:
+To predict geometry from a video, we reveal the RGB frames and denoise depth and camera rays. To generate video along a camera path, we reveal that path and one or two RGB frames, then denoise the missing images and depth. With only the first image revealed, the model completes the rest of the scene sequence.
 
-$$\hat{v}_{\mathrm{HG}} = \hat{v}_{\mathcal{H}} + w_{\mathrm{hist}}\big(\hat{v}_{\mathcal{H}} - \hat{v}_{\varnothing}\big), \quad w_{\mathrm{hist}} = 2.0,$$
+| Observed context | Missing components to infer |
+| --- | --- |
+| First RGB frame | Remaining RGB, depth, and camera rays |
+| Full RGB sequence | Depth and camera rays |
+| First and last RGB frames + camera trajectory | Intermediate RGB and depth |
+| First RGB frame + camera trajectory | Remaining RGB and depth |
+| First RGB frame + depth sequence | Remaining RGB and camera rays |
 
-where $\hat{v}\_{\mathcal{H}}$ has history clamped and $\hat{v}\_{\varnothing}$ replaces it with noise.
+<!-- VIDEO-MASKS: A short animation can switch the clean/noisy pattern while keeping the same scene and network. -->
 
-**Test-time search (TTS).** Because the model defines a *distribution* over 4D scene completions, we can draw $L$ samples from different seeds with the same clamped context, giving $L$ joint hypotheses $\hat{S}^{(\ell)} = \{(\hat{I}_i^{(\ell)}, \hat{D}_i^{(\ell)}, \hat{C}_i^{(\ell)})\}$. We then score each candidate by **cross-frame photometric reprojection** using its *own* predicted depth and camera geometry:
+These are different conditioning patterns for the same weights. During inference, the observed tokens stay fixed at every denoising step, while the missing tokens are progressively recovered. We also use history guidance <d-cite key="song2025dfot"></d-cite> to strengthen the influence of the observed context.
 
-$$e^{(\ell)} = \frac{1}{|\mathcal{P}|}\!\!\sum_{(i,j)\in\mathcal{P}}\!\!\frac{\big\lVert M_{ij}^{(\ell)} \odot (\tilde{I}_{i\to j}^{(\ell)} - \hat{I}_j^{(\ell)}) \big\rVert_1}{\lVert M_{ij}^{(\ell)} \rVert_1 + \epsilon},$$
+The training objective is flow matching. For a clean token $z_0$ and Gaussian noise $\epsilon$, we form
 
-with $\tilde{I}\_{i\to j}^{(\ell)}$ the warp from frame $i$ to frame $j$, $M\_{ij}^{(\ell)}$ the valid-pixel mask, and $\mathcal{P}$ an exhaustive pair set over a small anchor subsample. We pick $\ell^\star = \arg\min\_\ell e^{(\ell)}$. Candidates whose RGB, depth, and rays disagree under their own geometry warp badly and self-eliminate. $L=16$ throughout.
+$$
+z_t=(1-t)z_0+t\epsilon.
+$$
 
-<details>
-<summary><b>Implementation notes</b> (architecture, training, optimization, inference)</summary>
-<p>
-<b>Base &middot;</b> Wan2.1-T2V-1.3B; 30 layers, hidden 1536, FFN 8960, 12 heads; VAE stride $[4,8,8]$, patch $[1,2,2]$; ray latents bypass the VAE and pack four consecutive 3-channel ray frames into a 16-channel latent.<br/>
-<b>Training &middot;</b> Conditioning patterns 1--5 in Sec.&nbsp;3.3 are sampled per batch, restricted to each dataset's available modalities. Missing modalities use Gaussian placeholders forced to the maximum noise level and are masked out of the loss.<br/>
-<b>Optimization &middot;</b> AdamW, lr $1\!\times\!10^{-5}$, $(\beta_1,\beta_2)=(0.9,0.95)$, weight decay $0.05$, grad clip $5.0$, $1$k warmup, constant schedule; bf16 mixed precision; $4\times$ H200 GPUs, effective batch $16$ via grad-accum $4$, $\sim$$30$k steps; gradient checkpointing.<br/>
-<b>Inference &middot;</b> UniPC sampler with $40$ denoising steps and history-guidance strength $w_{\mathrm{hist}}=2.0$. A 50-frame clip at $240\times320$ takes approximately one minute on a single H100. TTS uses $L=16$ candidates and an anchor-pair photometric reprojection scorer.
-</p>
+The network predicts the velocity $\epsilon-z_0$. Different tokens can have different values of $t$, allowing clean observations and noisy targets to coexist in one sequence.
+
+This matters for the data as well. Most video datasets do not provide RGB, depth, camera pose, and text together. We train on eight real, synthetic, and robotic datasets with different subsets of annotations, computing a loss only where a target is available. RGB-only clips contribute visual supervision; clips with camera or depth annotations also supervise those modalities. Missing labels do not need to be invented to fit a common training format.
+
+<details markdown="1">
+<summary>Training data and available annotations</summary>
+
+The training mixture comprises RealEstate10K, DL3DV-10K, SpatialVID, ScanNet++, AgiBot World, OmniWorld, Virtual KITTI 2, and PointOdyssey. DL3DV-10K and ScanNet++ use depth and camera annotations from the VIPE pipeline; this is training supervision, separate from the test-time verifier. SpatialVID and AgiBot provide captions, and DL3DV-10K and RealEstate10K use annotated scene descriptions. Other datasets train without text conditioning.
+
+| Dataset | RGB | Depth | Camera pose |
+| --- | --- | --- | --- |
+| RealEstate10K | Yes | — | Yes |
+| DL3DV-10K | Yes | VIPE | VIPE |
+| SpatialVID | Yes | — | Yes |
+| ScanNet++ | Yes | VIPE | VIPE |
+| AgiBot World | Yes | — | — |
+| OmniWorld | Yes | Yes | Yes |
+| Virtual KITTI 2 | Yes | Yes | Yes |
+| PointOdyssey | Yes | Yes | Yes |
+
 </details>
 
-## 4 &middot; Experiments
+## 4 · Does joint training actually help?
 
-We evaluate three tasks (camera-controlled generation, pose, depth) under **dense** (full RGB observed) and **sparse** (first+last RGB only) regimes, plus TTS on top of dense + sparse pose/depth. Baselines were chosen to test the unification claim against task-specialists.
+Handling several tasks in one network is useful, but it does not by itself show that they help each other. We test this with controlled ablations: the same clips, 7,500 optimizer steps, and a matched training budget, removing one task or design choice at a time.
 
-### 4.1 Camera-controlled generation
+Removing RGB generation raises KITTI depth error from **0.152 to 0.322**. Removing depth prediction raises ScanNetV2 rotation error from **2.91° to 4.30°**. Removing pose estimation lowers RealEstate10K generation PSNR from **20.18 to 13.26 dB**. Each task contributes to a different task's performance.
 
-**Setup.** First + last RGB + target camera trajectory are clamped; the model generates intermediate RGB. We evaluate PSNR/SSIM/LPIPS on RealEstate10K <d-cite key="zhou2018realestate"></d-cite>, DL3DV-10K <d-cite key="ling2024dl3dv"></d-cite>, the 55-scene DL3DV-Evaluation split, and SpatialVID.
+We also remove RealEstate10K, which provides camera supervision but no depth labels. Depth error still rises on Bonn, from **0.135 to 0.239**, and on KITTI, from **0.152 to 0.196**. This is evidence that depth prediction can benefit from data that does not directly supervise depth.
 
-**Baselines.** Wan2.1-FLF-14B (no camera input) <d-cite key="wan2025wan"></d-cite>, a 14B-parameter first-last-frame video generator, roughly $10\times$ larger than our 1.3B model; DFoT <d-cite key="song2025dfot"></d-cite>, a diffusion-forcing video completer evaluated with camera conditioning; SEVA <d-cite key="zhou2025seva"></d-cite>, a state-of-the-art NVS-specialist diffusion model.
+The architecture matters too. Replacing image-aligned ray maps with global camera tokens worsens pose estimation and generation in the reported ablations. A single shared transformer also loses performance on several tasks, although it is slightly better for Bonn depth. The benefit comes from allowing the modalities to interact while retaining their own representations.
 
-<div class="l-page">
-  <figure>
-    <div class="r4d-carousel" data-r4d="nvs"></div>
-    <figcaption><b>Figure 4 &middot; Camera-controlled generation.</b> The first/last frames and a target camera trajectory (left) are clamped; each column on the right shows a candidate completion. Ours preserves dynamic content along the requested trajectory; SEVA is biased toward static scenes; Wan2.1-FLF has no camera input and drifts on complex motion; DFoT is camera-conditioned but can distort or remove moving humans. Use the dataset tabs and prev/next buttons to browse samples.</figcaption>
-  </figure>
-</div>
+<details markdown="1">
+<summary>Controlled ablation results</summary>
 
-**Table 2 &middot; Camera-controlled generation.** PSNR&uarr; / LPIPS&darr; / SSIM&uarr;. Best in **bold blue**, second in light blue.
+Each comparison uses the same sampled clips and hyperparameters, with an effective batch size of 8. Removing a task sets its loss to zero and replaces its target inputs with noise; retained loss weights are not renormalized. When RGB generation is removed, RGB remains available as clean conditioning. These are controlled smaller-budget runs, separate from the main-model benchmark tables.
 
-<div style="overflow-x:auto;">
-<table>
+| Evaluation | Complete architecture | Removed task or data |
+| --- | ---: | ---: |
+| KITTI depth Abs Rel ↓; without RGB generation | 0.152 | 0.322 |
+| ScanNetV2 pose RPEr ↓ (°); without depth prediction | 2.91 | 4.30 |
+| RealEstate10K generation PSNR ↑; without pose estimation | 20.18 | 13.26 |
+| Bonn depth Abs Rel ↓; without RealEstate10K | 0.135 | 0.239 |
+| KITTI depth Abs Rel ↓; without RealEstate10K | 0.152 | 0.196 |
+
+</details>
+
+## 5 · One model, three tasks
+
+### Camera-controlled generation
+
+Given a camera trajectory and either the first image or the first and last images, UGG generates the remaining video. We compare quantitatively with **Aether**, another unified generation-and-geometry model <d-cite key="zhu2025iccv-aether"></d-cite>, and **SEVA**, a novel-view synthesis model <d-cite key="zhou2025seva"></d-cite>. The qualitative comparisons also include **Wan2.1-FLF-14B** and **DFoT**. Wan's first-last-frame model has no camera-trajectory input, so it tests endpoint-conditioned completion rather than equivalent camera control.
+
+On RealEstate10K, SpatialVID, and DL3DV, UGG leads the compared methods on all three reported metrics in the one-view setting: PSNR and SSIM measure image agreement, while LPIPS measures perceptual similarity. With two views, it leads on RealEstate10K and SpatialVID; SEVA is stronger on DL3DV. For example, two-view RealEstate10K PSNR is **25.73 dB**, compared with **25.25** for SEVA and **20.02** for Aether.
+
+The videos also let us inspect something a table cannot fully describe: whether dynamic content remains coherent as the viewpoint changes. A requested camera motion and a moving person both have to be accounted for in the same completion.
+
+<!-- VIDEO-NVS: Replace or extend this gallery with the updated capability videos. -->
+<div class="l-page"><figure>
+<div class="r4d-carousel" data-r4d="nvs"></div>
+<figcaption>Camera-controlled generation from first and last images and a supplied trajectory. The existing gallery compares UGG, SEVA, Wan2.1-FLF, and DFoT with the reference video; Aether is included in the quantitative table.</figcaption>
+</figure></div>
+
+<details markdown="1">
+<summary>Full camera-controlled generation results</summary>
+
+Both protocols also receive the target camera trajectory. Wan2.1-FLF and DFoT are qualitative comparisons, not rows in the current quantitative table. Best and second-best shading is computed among the non-oracle rows within each protocol, with ties determined by the displayed rounded values. Oracle rows are ground-truth diagnostics and excluded from that ranking.
+
+#### Two-view generation
+
+<div class="result-table"><table data-result-table="generation-2-view">
+<caption>Two-view generation</caption>
 <thead>
-<tr><th rowspan="2">Method</th><th colspan="3">RealEstate10K</th><th colspan="3">DL3DV-10K</th><th colspan="3">DL3DV-Eval</th><th colspan="3">SpatialVID</th></tr>
-<tr><th>PSNR</th><th>LPIPS</th><th>SSIM</th><th>PSNR</th><th>LPIPS</th><th>SSIM</th><th>PSNR</th><th>LPIPS</th><th>SSIM</th><th>PSNR</th><th>LPIPS</th><th>SSIM</th></tr>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="3">RealEstate10K</th><th scope="colgroup" colspan="3">SpatialVID</th><th scope="colgroup" colspan="3">DL3DV</th></tr>
+<tr><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th></tr>
 </thead>
 <tbody>
-<tr><td>Wan2.1-FLF</td><td>15.87</td><td>0.327</td><td>0.478</td><td>12.41</td><td>0.493</td><td>0.241</td><td>12.17</td><td>0.493</td><td>0.232</td><td>12.43</td><td>0.529</td><td>0.295</td></tr>
-<tr><td>DFoT</td><td class="sec">21.23</td><td>0.178</td><td class="sec">0.680</td><td>14.15</td><td>0.438</td><td>0.368</td><td class="sec">14.33</td><td>0.365</td><td class="sec">0.328</td><td class="sec">14.71</td><td>0.408</td><td class="sec">0.389</td></tr>
-<tr><td>SEVA</td><td class="best">22.77</td><td class="sec">0.164</td><td class="best">0.777</td><td class="best">18.27</td><td class="best">0.310</td><td class="best">0.615</td><td class="best">17.90</td><td class="best">0.298</td><td class="best">0.560</td><td class="best">16.72</td><td class="sec">0.348</td><td class="best">0.587</td></tr>
-<tr><td><b>Ours</b></td><td>19.98</td><td class="best">0.154</td><td>0.658</td><td class="sec">15.09</td><td class="sec">0.316</td><td class="sec">0.408</td><td>13.69</td><td class="sec">0.325</td><td>0.308</td><td>14.51</td><td class="best">0.335</td><td>0.386</td></tr>
+<tr><th scope="row">Aether</th><td>20.02</td><td>0.196</td><td>0.624</td><td>13.84</td><td>0.489</td><td>0.334</td><td>13.14</td><td>0.399</td><td>0.243</td></tr>
+<tr><th scope="row">SEVA</th><td class="sec">25.25</td><td class="sec">0.081</td><td class="sec">0.838</td><td class="sec">15.44</td><td class="sec">0.344</td><td class="sec">0.466</td><td class="best">17.61</td><td class="best">0.211</td><td class="best">0.552</td></tr>
+<tr><th scope="row">UGG</th><td class="best">25.73</td><td class="best">0.061</td><td class="best">0.849</td><td class="best">16.99</td><td class="best">0.288</td><td class="best">0.535</td><td class="sec">16.61</td><td class="sec">0.239</td><td class="sec">0.495</td></tr>
 </tbody>
-</table>
-</div>
+</table></div>
 
-**Analysis.** We achieve the *best LPIPS* on RealEstate10K and SpatialVID and second-best on DL3DV, and we outperform Wan2.1-FLF on every metric on every dataset despite using roughly $10\times$ fewer parameters. SEVA wins on the pixel-aligned PSNR/SSIM; expected, since it is purpose-built for NVS. The interpretation: ray-map conditioning gives effective trajectory control under the same backbone that also predicts depth and pose; a specialist still beats us on pixel metrics, but we are *competitive* without specializing.
 
-### 4.2 Camera pose estimation
+#### One-view generation
 
-**Setup.** RGB clamped; rays denoised; predicted ray maps are converted back to $(K, T)$. Dense: full video. Sparse: first+last frame only. Metrics: ATE, RPE$_t$, RPE$_r$ after Sim(3) Umeyama alignment, following Geo4D. Baselines: Geo4D <d-cite key="jiang2025geo4d"></d-cite>, RayDiffusion <d-cite key="zhang2024raydiffusion"></d-cite>.
-
-<div class="l-page">
-  <figure>
-    <div class="r4d-carousel" data-r4d="pose"></div>
-    <figcaption><b>Figure 5 &middot; Predicted camera trajectories.</b> Frustum wireframes for ground truth, our model, Geo4D, and RayDiffusion. Use the dataset tabs and prev/next buttons to browse samples.</figcaption>
-  </figure>
-</div>
-
-**Table 3 &middot; Pose estimation.** ATE&darr; / RPE$_t$&darr; / RPE$_r$&darr; ($\times\!10^{-2}$).
-
-<div style="overflow-x:auto;">
-<table>
+<div class="result-table"><table data-result-table="generation-1-view">
+<caption>One-view generation</caption>
 <thead>
-<tr><th></th><th>Method</th><th colspan="3">RealEstate10K</th><th colspan="3">DL3DV-10K</th><th colspan="3">ScanNet++</th><th colspan="3">SpatialVID</th></tr>
-<tr><th></th><th></th><th>ATE</th><th>RPE$_t$</th><th>RPE$_r$</th><th>ATE</th><th>RPE$_t$</th><th>RPE$_r$</th><th>ATE</th><th>RPE$_t$</th><th>RPE$_r$</th><th>ATE</th><th>RPE$_t$</th><th>RPE$_r$</th></tr>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="3">RealEstate10K</th><th scope="colgroup" colspan="3">SpatialVID</th><th scope="colgroup" colspan="3">DL3DV</th></tr>
+<tr><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th><th scope="col">PSNR ↑</th><th scope="col">LPIPS ↓</th><th scope="col">SSIM ↑</th></tr>
 </thead>
 <tbody>
-<tr><td rowspan="4"><i>Dense</i></td><td>RayDiffusion</td><td>5.712</td><td>7.216</td><td>11.560</td><td>5.840</td><td>9.569</td><td>35.970</td><td>2.824</td><td>4.082</td><td>53.920</td><td>6.262</td><td>8.610</td><td>31.840</td></tr>
-<tr><td>Geo4D</td><td>1.103</td><td>0.559</td><td class="best">0.232</td><td>1.868</td><td>0.625</td><td class="best">0.911</td><td>1.716</td><td>0.472</td><td class="best">0.937</td><td>2.533</td><td>0.767</td><td class="best">0.577</td></tr>
-<tr><td><b>Ours</b></td><td class="sec">0.593</td><td class="sec">0.222</td><td class="sec">0.952</td><td class="best">1.160</td><td class="best">0.351</td><td class="sec">2.300</td><td class="sec">1.169</td><td class="sec">0.337</td><td>2.372</td><td class="best">2.117</td><td class="sec">0.702</td><td>1.581</td></tr>
-<tr><td><b>Ours (TTS)</b></td><td class="best">0.534</td><td class="best">0.220</td><td>0.966</td><td>1.208</td><td class="sec">0.356</td><td>2.381</td><td class="best">0.927</td><td class="best">0.323</td><td class="sec">2.316</td><td class="sec">2.169</td><td class="best">0.701</td><td class="sec">1.464</td></tr>
-<tr><td rowspan="4"><i>Sparse</i></td><td>RayDiffusion</td><td>13.715</td><td>24.220</td><td>48.851</td><td>10.185</td><td>22.503</td><td>77.655</td><td>4.475</td><td>14.263</td><td>109.84</td><td>14.486</td><td>33.801</td><td>86.099</td></tr>
-<tr><td>Geo4D</td><td>26.516</td><td>37.499</td><td>14.980</td><td>16.156</td><td>22.848</td><td>55.886</td><td>8.875</td><td class="sec">12.551</td><td>71.614</td><td>30.888</td><td>43.682</td><td>45.924</td></tr>
-<tr><td><b>Ours</b></td><td class="sec">1.220</td><td class="sec">0.326</td><td class="sec">0.984</td><td class="best">2.261</td><td class="best">0.589</td><td class="best">2.938</td><td class="sec">2.229</td><td class="best">0.518</td><td class="sec">3.602</td><td class="best">3.683</td><td class="best">0.992</td><td class="best">2.055</td></tr>
-<tr><td><b>Ours (TTS)</b></td><td class="best">1.088</td><td class="best">0.319</td><td class="best">0.951</td><td class="sec">2.398</td><td class="sec">0.611</td><td class="sec">3.123</td><td class="best">2.031</td><td class="best">0.518</td><td class="best">3.270</td><td class="sec">3.762</td><td class="sec">1.021</td><td class="sec">2.202</td></tr>
+<tr><th scope="row">Aether</th><td>15.79</td><td>0.335</td><td>0.469</td><td>11.81</td><td>0.632</td><td>0.283</td><td>11.96</td><td>0.506</td><td>0.240</td></tr>
+<tr><th scope="row">SEVA</th><td class="sec">19.58</td><td class="sec">0.194</td><td class="sec">0.703</td><td class="sec">13.35</td><td class="sec">0.472</td><td class="sec">0.343</td><td class="sec">13.50</td><td class="sec">0.393</td><td class="sec">0.335</td></tr>
+<tr><th scope="row">UGG</th><td class="best">21.79</td><td class="best">0.150</td><td class="best">0.779</td><td class="best">14.86</td><td class="best">0.428</td><td class="best">0.405</td><td class="best">13.92</td><td class="best">0.385</td><td class="best">0.346</td></tr>
 </tbody>
-</table>
-</div>
+</table></div>
 
-**Analysis.** *Dense:* we beat both baselines on ATE / RPE$_t$ on every dataset, e.g. DL3DV ATE 1.868 &rarr; 1.160 (38% lower) vs Geo4D. Geo4D wins on rotation RPE$_r$ where its specialized geometry head helps, but we gain on global trajectory. *Sparse:* the order-of-magnitude gap is the most informative number on this page. With only two RGB frames, both RayDiffusion and Geo4D collapse (ATE 10--30); we stay at 1--4 by falling back on the joint RGB+camera prior learned from heterogeneous data. SpatialVID sparse ATE 30.888 &rarr; 3.683 --- the kind of regime where a feedforward predictor has nothing to match locally and a *generative posterior* is genuinely the right tool.
+</details>
 
-### 4.3 Depth prediction
+### Camera pose estimation
 
-**Setup.** RGB clamped; depth denoised. Evaluation on Virtual KITTI 2 <d-cite key="cabon2020vkitti"></d-cite>, DL3DV-10K, ScanNet++ <d-cite key="yeshwanth2023scannetpp"></d-cite>, and 7-Scenes <d-cite key="shotton2013scene"></d-cite>; video-level scale-and-shift alignment, then Abs Rel, RMSE, $\delta\!<\!1.25$. Baselines: Geo4D, ChronoDepth <d-cite key="shao2025chronodepth"></d-cite>.
+For geometric prediction, we distinguish **dense** inputs, where the full RGB video is observed, from **sparse** inputs, where only the first and last images are given to the model. We compare pose quantitatively with **Geo4D, Gen3R, and Aether** <d-cite key="jiang2025geo4d,Huang_2026_CVPR,zhu2025iccv-aether"></d-cite>; RayDiffusion appears in the qualitative comparisons.
 
-<div class="l-page">
-  <figure>
-    <div class="r4d-carousel" data-r4d="depth"></div>
-    <figcaption><b>Figure 6 &middot; Video depth qualitative.</b> RGB &middot; GT depth &middot; <b>ours</b> &middot; Geo4D &middot; ChronoDepth. Use the dataset tabs and prev/next buttons to browse samples; ours preserves sharper object boundaries and more coherent temporal structure.</figcaption>
-  </figure>
-</div>
+Dense pose is evaluated on RealEstate10K, Sintel, TUM, ScanNetV2, and ScanNet++. After aligning trajectories up to global rotation, translation, and scale, we measure absolute trajectory error (ATE) and relative translation and rotation errors. Without search, UGG has lower ATE and relative translation error than all three external baselines on all five benchmarks. On ScanNet++, ATE is **0.087**, compared with **0.190** for Geo4D. Rotation is also strong, though Gen3R remains better on TUM.
 
-**Table 4 &middot; Depth prediction.** AbsRel&darr; / RMSE&darr; / $\delta\!<\!1.25$&uarr;.
+With only two observed images, we evaluate their relative pose. Translation angular error (tAE) measures whether the predicted direction of motion is correct; rotation error measures the change in orientation. UGG has the lowest errors among the external baselines on both metrics across all five datasets. On RealEstate10K, its translation angular error is **8.260°**, compared with **39.834°** for Aether, **44.004°** for Gen3R, and **117.079°** for Geo4D.
 
-<div style="overflow-x:auto;">
-<table>
+<!-- VIDEO-POSE: Replace or extend this gallery with the updated capability videos. -->
+<div class="l-page"><figure>
+<div class="r4d-carousel" data-r4d="pose"></div>
+<figcaption>Representative camera trajectories from the existing qualitative gallery: reference, UGG, Geo4D, and RayDiffusion. Gen3R and Aether are included in the quantitative table. These examples illustrate trajectory structure; they are separate from the updated benchmark tables.</figcaption>
+</figure></div>
+
+<details markdown="1">
+<summary>Full camera pose results</summary>
+
+Dense trajectories use Sim(3) Umeyama alignment. ATE and RPEt are reported in the paper’s aligned coordinate convention; RPEr is in degrees. Sparse pose scores the relative camera between the two observed endpoints, with both tAE and RPEr in degrees. UGG uses shared intrinsics. Sparse TTS uses additional real RGB for verification, as described in Section 6; the base UGG and external baseline rows use the sparse model-input protocol. Best and second-best shading is computed among the non-oracle rows within each protocol, with ties determined by the displayed rounded values. Oracle rows are ground-truth diagnostics and excluded from that ranking.
+
+#### Dense pose
+
+<div class="result-table"><table data-result-table="pose-dense">
+<caption>Dense pose</caption>
 <thead>
-<tr><th></th><th>Method</th><th colspan="3">Virtual KITTI 2</th><th colspan="3">DL3DV-10K</th><th colspan="3">ScanNet++</th><th colspan="3">7-Scenes</th></tr>
-<tr><th></th><th></th><th>Rel</th><th>RMSE</th><th>$\delta$</th><th>Rel</th><th>RMSE</th><th>$\delta$</th><th>Rel</th><th>RMSE</th><th>$\delta$</th><th>Rel</th><th>RMSE</th><th>$\delta$</th></tr>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="3">RealEstate10K</th><th scope="colgroup" colspan="3">Sintel</th><th scope="colgroup" colspan="3">TUM</th><th scope="colgroup" colspan="3">ScanNetV2</th><th scope="colgroup" colspan="3">ScanNet++</th></tr>
+<tr><th scope="col">ATE ↓</th><th scope="col">RPEt ↓</th><th scope="col">RPEr ↓ (°)</th><th scope="col">ATE ↓</th><th scope="col">RPEt ↓</th><th scope="col">RPEr ↓ (°)</th><th scope="col">ATE ↓</th><th scope="col">RPEt ↓</th><th scope="col">RPEr ↓ (°)</th><th scope="col">ATE ↓</th><th scope="col">RPEt ↓</th><th scope="col">RPEr ↓ (°)</th><th scope="col">ATE ↓</th><th scope="col">RPEt ↓</th><th scope="col">RPEr ↓ (°)</th></tr>
 </thead>
 <tbody>
-<tr><td rowspan="4"><i>Dense</i></td><td>ChronoDepth</td><td>0.382</td><td>0.287</td><td>0.399</td><td>0.340</td><td class="best">0.161</td><td>0.509</td><td class="sec">0.185</td><td>0.208</td><td class="sec">0.796</td><td>1.443</td><td>0.294</td><td>0.381</td></tr>
-<tr><td>Geo4D</td><td class="best">0.211</td><td>0.194</td><td>0.675</td><td class="best">0.304</td><td>0.206</td><td class="best">0.631</td><td class="best">0.150</td><td class="best">0.191</td><td class="best">0.863</td><td class="best">1.362</td><td class="best">0.258</td><td>0.531</td></tr>
-<tr><td><b>Ours</b></td><td>0.225</td><td class="sec">0.189</td><td class="sec">0.680</td><td>0.308</td><td class="sec">0.171</td><td>0.545</td><td>0.297</td><td class="sec">0.201</td><td>0.749</td><td>1.387</td><td>0.260</td><td class="sec">0.607</td></tr>
-<tr><td><b>Ours (TTS)</b></td><td class="sec">0.220</td><td class="best">0.183</td><td class="best">0.695</td><td class="best">0.304</td><td>0.175</td><td class="sec">0.570</td><td>0.251</td><td>0.218</td><td>0.736</td><td class="sec">1.385</td><td class="sec">0.259</td><td class="best">0.619</td></tr>
-<tr><td rowspan="4"><i>Sparse</i></td><td>ChronoDepth</td><td>1.309</td><td class="best">0.412</td><td>0.127</td><td>0.835</td><td class="best">0.284</td><td>0.274</td><td>0.689</td><td>0.292</td><td>0.500</td><td class="sec">1.431</td><td class="sec">0.268</td><td>0.483</td></tr>
-<tr><td>Geo4D</td><td>1.309</td><td class="best">0.412</td><td>0.127</td><td>0.855</td><td class="sec">0.288</td><td>0.268</td><td>0.699</td><td>0.296</td><td>0.486</td><td class="best">1.371</td><td class="best">0.223</td><td class="best">0.737</td></tr>
-<tr><td><b>Ours</b></td><td class="sec">0.747</td><td>0.632</td><td class="sec">0.401</td><td class="sec">0.731</td><td>0.369</td><td class="best">0.422</td><td class="best">0.418</td><td class="best">0.272</td><td class="sec">0.655</td><td>1.451</td><td>0.274</td><td>0.486</td></tr>
-<tr><td><b>Ours (TTS)</b></td><td class="best">0.716</td><td class="sec">0.573</td><td class="best">0.449</td><td class="best">0.670</td><td>0.291</td><td class="sec">0.397</td><td class="sec">0.454</td><td class="sec">0.280</td><td class="best">0.695</td><td>1.445</td><td>0.272</td><td class="sec">0.498</td></tr>
+<tr><th scope="row">Geo4D</th><td>0.026</td><td>0.028</td><td>0.147</td><td>0.160</td><td>0.097</td><td>0.911</td><td>0.052</td><td>0.029</td><td>1.414</td><td class="sec">0.074</td><td>0.044</td><td>1.762</td><td>0.190</td><td>0.090</td><td>5.591</td></tr>
+<tr><th scope="row">Gen3R</th><td>0.030</td><td class="sec">0.011</td><td class="sec">0.141</td><td>0.233</td><td>0.066</td><td>1.538</td><td>0.046</td><td class="sec">0.016</td><td class="best">0.943</td><td>0.075</td><td class="sec">0.024</td><td>1.018</td><td>0.232</td><td>0.066</td><td>5.760</td></tr>
+<tr><th scope="row">Aether</th><td>0.018</td><td>0.014</td><td>0.851</td><td>0.180</td><td>0.867</td><td>1.354</td><td>0.041</td><td class="sec">0.016</td><td>1.462</td><td>0.075</td><td>0.030</td><td>1.617</td><td>0.225</td><td>0.068</td><td>5.944</td></tr>
+<tr><th scope="row">UGG</th><td class="sec">0.010</td><td class="best">0.004</td><td class="best">0.076</td><td class="sec">0.098</td><td class="sec">0.034</td><td class="sec">0.708</td><td class="sec">0.018</td><td class="best">0.007</td><td class="sec">1.052</td><td class="best">0.038</td><td class="best">0.016</td><td class="sec">0.938</td><td class="sec">0.087</td><td class="sec">0.036</td><td class="best">3.861</td></tr>
+<tr><th scope="row">UGG (TTS)</th><td class="best">0.009</td><td class="best">0.004</td><td class="best">0.076</td><td class="best">0.091</td><td class="best">0.033</td><td class="best">0.684</td><td class="best">0.017</td><td class="best">0.007</td><td>1.054</td><td class="best">0.038</td><td class="best">0.016</td><td class="best">0.937</td><td class="best">0.082</td><td class="best">0.035</td><td class="sec">4.105</td></tr>
+<tr class="oracle"><th scope="row">UGG (Oracle; GT diagnostic)</th><td>0.008</td><td>0.004</td><td>0.076</td><td>0.072</td><td>0.030</td><td>0.695</td><td>0.015</td><td>0.006</td><td>1.053</td><td>0.033</td><td>0.015</td><td>0.939</td><td>0.072</td><td>0.035</td><td>4.078</td></tr>
 </tbody>
-</table>
-</div>
+</table></div>
 
-**Analysis.** *Dense:* we are competitive everywhere and lead on Virtual KITTI 2 RMSE and 7-Scenes $\delta$. Geo4D remains stronger on the indoor ScanNet++ split; specialist geometry models still benefit from indoor-heavy training. *Sparse:* the joint formulation wins decisively on Virtual KITTI 2, DL3DV, and ScanNet++ (AbsRel 0.689 &rarr; 0.418 on ScanNet++). Two frames are not enough for video-depth-specialists to exploit temporal context; the generative prior plus cross-modal training is.
 
-### 4.4 Test-time search
+#### Sparse pose
 
-<div class="l-body">
-  <figure>
-    <img src="{{ '/assets/img/4d-world-model/test-time-k-dl3dv.png' | relative_url }}" alt="TTS curves."/>
-    <figcaption><b>Figure 7 &middot; Test-time search</b> on DL3DV-10K. Pose ATE and depth AbsRel improve as we sample more candidates and pick the one with the lowest RGB reprojection error. No retraining, no extra parameters: just more inference compute spent in the right place.</figcaption>
-  </figure>
-</div>
+<div class="result-table"><table data-result-table="pose-sparse">
+<caption>Sparse pose</caption>
+<thead>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">RealEstate10K</th><th scope="colgroup" colspan="2">Sintel</th><th scope="colgroup" colspan="2">TUM</th><th scope="colgroup" colspan="2">ScanNetV2</th><th scope="colgroup" colspan="2">ScanNet++</th></tr>
+<tr><th scope="col">tAE ↓ (°)</th><th scope="col">RPEr ↓ (°)</th><th scope="col">tAE ↓ (°)</th><th scope="col">RPEr ↓ (°)</th><th scope="col">tAE ↓ (°)</th><th scope="col">RPEr ↓ (°)</th><th scope="col">tAE ↓ (°)</th><th scope="col">RPEr ↓ (°)</th><th scope="col">tAE ↓ (°)</th><th scope="col">RPEr ↓ (°)</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">Geo4D</th><td>117.079</td><td>3.407</td><td>108.628</td><td>24.160</td><td>100.224</td><td>11.936</td><td>90.812</td><td>43.458</td><td>82.747</td><td>83.019</td></tr>
+<tr><th scope="row">Gen3R</th><td>44.004</td><td>4.197</td><td>75.984</td><td>24.984</td><td>82.875</td><td>12.374</td><td>79.871</td><td>43.481</td><td>92.324</td><td>82.540</td></tr>
+<tr><th scope="row">Aether</th><td>39.834</td><td>14.969</td><td>78.012</td><td>33.640</td><td>48.436</td><td>6.234</td><td>70.925</td><td>36.720</td><td>77.234</td><td>81.681</td></tr>
+<tr><th scope="row">UGG</th><td class="sec">8.260</td><td class="best">1.287</td><td class="sec">35.479</td><td class="sec">22.065</td><td class="sec">9.938</td><td class="best">1.371</td><td class="sec">28.240</td><td class="sec">21.417</td><td class="sec">40.194</td><td class="sec">43.078</td></tr>
+<tr><th scope="row">UGG (TTS)</th><td class="best">3.475</td><td class="sec">1.393</td><td class="best">18.733</td><td class="best">20.646</td><td class="best">8.520</td><td class="sec">1.444</td><td class="best">20.057</td><td class="best">18.911</td><td class="best">31.835</td><td class="best">37.875</td></tr>
+<tr class="oracle"><th scope="row">UGG (Oracle; GT diagnostic)</th><td>1.550</td><td>1.399</td><td>8.521</td><td>26.135</td><td>3.401</td><td>1.154</td><td>9.683</td><td>20.688</td><td>7.892</td><td>43.836</td></tr>
+</tbody>
+</table></div>
 
-The TTS rows in Tables 3 and 4 are the same model, with $L=16$ samples and reprojection-based selection. TTS improves on the no-search baseline in 9/12 pose cells (dense) and 11/12 depth cells (sparse). Gains are not uniform: reprojection error is a *proxy* for geometric accuracy, so on textureless or specular regions the selector is misled. Still --- improvements at zero training cost, monotone in $L$ on DL3DV (Fig. 7), and consistent with the cognitive view of perception as generate-and-check <d-cite key="kersten2004object,yuille2006vision,battaglia2013simulation"></d-cite>.
+</details>
 
-## 5 &middot; Discussion, limitations, and outlook
+### Depth prediction
 
-The headline finding is that **one model + one mask is enough**. A 1.3B-parameter diffusion transformer with three modality streams and shared attention, trained with diffusion forcing on heterogeneous data, handles camera-controlled generation, video depth, and camera pose, and improves itself at inference time by sampling more 4D scene hypotheses. The conditional-completion formulation cleanly answers our scientific question: generation and prediction *are* the same problem, and the benefits (heterogeneous supervision, joint priors, posterior search) are concretely measurable, especially in sparse regimes.
+We evaluate depth on ScanNet++, 7-Scenes, KITTI, Sintel, and Bonn, against **ChronoDepth, Geo4D, Gen3R, Aether, and Marigold** <d-cite key="shao2025chronodepth,jiang2025geo4d,Huang_2026_CVPR,zhu2025iccv-aether,ke2023marigold"></d-cite>. We align depth at the video level for scale and shift, then report absolute relative error (Abs Rel; lower is better) and the fraction of pixels within a factor of 1.25 of the reference depth ($\delta_{1.25}$; higher is better). These are aligned-depth results, rather than a test of absolute metric scale.
 
-**Implications.** (i) Web-scale RGB-only video can train geometry models without needing matched depth or pose. (ii) Sparse-view geometry (a regime where feedforward predictors collapse) becomes the *strength* of generative scene models, not a weakness. (iii) Inference compute is a usable lever for accuracy.
+UGG is competitive with specialized depth systems across these settings. In dense ScanNet++, its Abs Rel is **0.073**, compared with **0.106** for Geo4D, the strongest external baseline there. Its advantage is particularly clear with sparse observations: UGG leads the external baselines on both depth metrics on ScanNet++, 7-Scenes, Sintel, and Bonn. Specialized models retain advantages on some dense benchmarks, including Aether on KITTI and Geo4D on Sintel.
 
-**Limitations.** (1) Specialist NVS models like SEVA still win on pixel-aligned PSNR/SSIM; spending capacity on geometry costs some appearance fidelity. (2) The TTS scorer is photometric reprojection, which fails on low-texture or specular surfaces; a learned multimodal consistency score would likely improve search. (3) We train at $240\times320$, 50 frames, on 4 H200s --- modest resolution and scale by current video-model standards. (4) Indoor depth still favors specialist geometry models; a better dataset balance would close that gap.
+<!-- VIDEO-DEPTH: Replace or extend this gallery with the updated capability videos. -->
+<div class="l-page"><figure>
+<div class="r4d-carousel" data-r4d="depth"></div>
+<figcaption>RGB, reference depth, UGG, Geo4D, and ChronoDepth from the existing qualitative gallery. The updated quantitative comparisons also include Gen3R, Aether, and Marigold. These examples are separate from the updated benchmark tables.</figcaption>
+</figure></div>
 
-**Looking ahead.** Stronger learned consistency scorers, search *during* the denoising process (not just over seeds), larger-scale training, and embodied/robotic evaluation are the natural next moves. The structural point survives: stop thinking of "generation" and "prediction" as separate capabilities. They are different conditional queries on the same joint distribution, and a diffusion transformer can learn that distribution from messy, partially annotated video at scale.
+<details markdown="1">
+<summary>Full depth results</summary>
+
+Depth is aligned for scale and shift at the video level. Abs Rel is lower-is-better and δ1.25 is higher-is-better. Sparse depth evaluates the two observed endpoints. Sparse TTS additionally reads neighbouring real RGB during selection, as described in Section 6. Oracle metrics describe a ground-truth-selected candidate, not an independently optimized best value in each column. Best and second-best shading is computed among the non-oracle rows within each protocol, with ties determined by the displayed rounded values. Oracle rows are ground-truth diagnostics and excluded from that ranking.
+
+#### Dense depth
+
+<div class="result-table"><table data-result-table="depth-dense">
+<caption>Dense depth</caption>
+<thead>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">ScanNet++</th><th scope="colgroup" colspan="2">7-Scenes</th><th scope="colgroup" colspan="2">KITTI</th><th scope="colgroup" colspan="2">Sintel</th><th scope="colgroup" colspan="2">Bonn</th></tr>
+<tr><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">ChronoDepth</th><td>0.177</td><td>0.724</td><td>0.116</td><td>0.871</td><td>0.120</td><td>0.857</td><td>0.394</td><td>0.530</td><td>0.092</td><td>0.920</td></tr>
+<tr><th scope="row">Geo4D</th><td>0.106</td><td>0.894</td><td class="sec">0.080</td><td class="sec">0.923</td><td>0.097</td><td>0.923</td><td class="best">0.247</td><td class="best">0.676</td><td class="best">0.057</td><td class="best">0.972</td></tr>
+<tr><th scope="row">Gen3R</th><td>0.157</td><td>0.772</td><td class="best">0.079</td><td class="best">0.937</td><td>0.185</td><td>0.777</td><td>0.414</td><td>0.520</td><td>0.168</td><td>0.805</td></tr>
+<tr><th scope="row">Aether</th><td>0.166</td><td>0.769</td><td>0.109</td><td>0.898</td><td class="best">0.056</td><td class="best">0.975</td><td>0.351</td><td>0.607</td><td>0.095</td><td>0.911</td></tr>
+<tr><th scope="row">Marigold</th><td>0.175</td><td>0.730</td><td>0.094</td><td>0.910</td><td>0.098</td><td>0.910</td><td>0.388</td><td>0.517</td><td>0.082</td><td>0.933</td></tr>
+<tr><th scope="row">UGG</th><td class="sec">0.073</td><td class="sec">0.952</td><td>0.083</td><td>0.921</td><td>0.064</td><td>0.960</td><td>0.303</td><td>0.654</td><td>0.060</td><td>0.963</td></tr>
+<tr><th scope="row">UGG (TTS)</th><td class="best">0.072</td><td class="best">0.954</td><td>0.084</td><td>0.920</td><td class="sec">0.063</td><td class="sec">0.962</td><td class="sec">0.293</td><td class="sec">0.661</td><td class="sec">0.059</td><td class="sec">0.969</td></tr>
+<tr class="oracle"><th scope="row">UGG (Oracle; GT diagnostic)</th><td>0.063</td><td>0.963</td><td>0.074</td><td>0.923</td><td>0.055</td><td>0.967</td><td>0.263</td><td>0.692</td><td>0.056</td><td>0.973</td></tr>
+</tbody>
+</table></div>
+
+
+#### Sparse depth
+
+<div class="result-table"><table data-result-table="depth-sparse">
+<caption>Sparse depth</caption>
+<thead>
+<tr><th scope="col" rowspan="2">Method</th><th scope="colgroup" colspan="2">ScanNet++</th><th scope="colgroup" colspan="2">7-Scenes</th><th scope="colgroup" colspan="2">KITTI</th><th scope="colgroup" colspan="2">Sintel</th><th scope="colgroup" colspan="2">Bonn</th></tr>
+<tr><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th><th scope="col">Abs Rel ↓</th><th scope="col">δ1.25 ↑</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">ChronoDepth</th><td>0.199</td><td>0.700</td><td>0.130</td><td>0.844</td><td class="sec">0.089</td><td>0.905</td><td>0.424</td><td>0.487</td><td>0.072</td><td>0.960</td></tr>
+<tr><th scope="row">Geo4D</th><td>0.177</td><td>0.737</td><td>0.098</td><td class="sec">0.912</td><td>0.100</td><td>0.897</td><td>0.310</td><td>0.554</td><td>0.067</td><td>0.966</td></tr>
+<tr><th scope="row">Gen3R</th><td>0.238</td><td>0.620</td><td>0.124</td><td>0.867</td><td>0.104</td><td>0.888</td><td>0.347</td><td>0.510</td><td>0.127</td><td>0.847</td></tr>
+<tr><th scope="row">Aether</th><td>0.269</td><td>0.567</td><td>0.167</td><td>0.772</td><td>0.149</td><td>0.786</td><td>0.487</td><td>0.424</td><td>0.138</td><td>0.849</td></tr>
+<tr><th scope="row">Marigold</th><td>0.169</td><td>0.733</td><td>0.106</td><td>0.890</td><td class="best">0.087</td><td class="sec">0.921</td><td>0.345</td><td>0.527</td><td>0.071</td><td>0.970</td></tr>
+<tr><th scope="row">UGG</th><td class="sec">0.101</td><td class="sec">0.884</td><td class="sec">0.087</td><td class="best">0.916</td><td>0.099</td><td>0.917</td><td class="sec">0.258</td><td class="sec">0.660</td><td class="sec">0.049</td><td class="sec">0.977</td></tr>
+<tr><th scope="row">UGG (TTS)</th><td class="best">0.082</td><td class="best">0.917</td><td class="best">0.086</td><td class="best">0.916</td><td class="best">0.087</td><td class="best">0.934</td><td class="best">0.219</td><td class="best">0.678</td><td class="best">0.047</td><td class="best">0.979</td></tr>
+<tr class="oracle"><th scope="row">UGG (Oracle; GT diagnostic)</th><td>0.055</td><td>0.966</td><td>0.075</td><td>0.923</td><td>0.068</td><td>0.946</td><td>0.177</td><td>0.781</td><td>0.043</td><td>0.979</td></tr>
+</tbody>
+</table></div>
+
+</details>
+
+## 6 · Sampling a prediction, then checking it against the images
+
+Sparse observations can admit several plausible scene explanations. A generative model can represent alternatives, so we can spend additional inference compute drawing candidates from different noise initializations. In our experiments, we sample **16 candidates** and select one for each scene.
+
+The difficulty is deciding which candidate to trust without the correct depth or camera pose. We use a verifier built around **RAFT optical flow** <d-cite key="teed2020raft"></d-cite>: correspondences describing where pixels move between real frames. It checks whether a candidate's geometry explains that observed motion. Depth selection also uses RGB agreement and, in the dense setting, DINOv2 image features <d-cite key="oquab2023dinov2"></d-cite>. No ground-truth depth or pose, or depth or pose foundation model, supplies the verification target.
+
+First, the verifier checks flow in both directions and removes correspondences whose round trip is inconsistent. It also adapts the spacing between frames to the measured motion. Adjacent frames can have too little parallax to constrain depth; widely separated frames can have too much occlusion for reliable matching. Choosing pairs by pixel displacement gives the geometric check more useful evidence.
+
+**Checking depth.** Camera rotation moves pixels even for very distant surfaces. Translation adds parallax, whose magnitude depends on depth. We estimate a relative camera from the image correspondences and use that same camera for every depth candidate. After accounting for rotation and fitting the candidate's inverse-depth scale and shift, we ask how well its depth explains the remaining motion. Using a shared camera helps separate errors in depth from errors in predicted camera pose.
+
+**Checking pose.** For each candidate, we compare its predicted relative translation direction with the direction estimated from the images, using that candidate's intrinsics. The selected pose rule averages these angular disagreements over several frame pairs. It evaluates each candidate against image evidence, rather than rewarding agreement with the other predictions.
+
+In the sparse setting, **the model receives the two endpoint images, while the verifier also uses real neighbouring RGB frames from the clip.** Depth is checked at the scored endpoints against nearby images; pose is checked along the candidate's predicted trajectory. This lets us generate hypotheses from sparse inputs and use additional visual evidence to choose among them, without requiring depth or pose labels.
+
+| Task | Evidence and selected readout | Frame pairs |
+| --- | --- | --- |
+| Sparse depth | Parallax fit residual + perpendicular epipolar residual (`corr + epi`) | 8 endpoint-to-neighbour pairs; 16 px motion target |
+| Dense depth | Parallax fit residual + DINOv2 feature warp residual + RGB warp residual (`corr + feat + photo`) | 12 adaptive pairs; 16 px target |
+| Sparse pose | Translation-direction angle (`t`) | 12 adaptive pairs along the predicted trajectory; 16 px target |
+| Dense pose | Translation-direction angle (`t`) | 32 directed pairs from 16 bidirectional anchors; 32 px target |
+
+
+The verifier selects one complete candidate for each scene. Depth scores are combined through weighted ranks across frame pairs; pose uses the ordering of its translation-direction score. Each candidate is checked against the images rather than a consensus prediction from the pool. We assess the choices of readouts and pair recipes by leaving one benchmark out, choosing on the others, and evaluating on the held-out benchmark. The sparse rules are the same in every fold.
+
+The largest gains appear in sparse prediction. RealEstate10K tAE falls from **8.260° to 3.475°**, and Sintel tAE from **35.479° to 18.733°**. Sparse ScanNet++ depth Abs Rel falls from **0.101 to 0.082**; sparse Sintel falls from **0.258 to 0.219**. Dense gains are generally smaller. The verifier is a proxy for geometric accuracy, so improvements are not uniform across every metric, but the sparse results show that the model generates useful alternatives and that image evidence can help identify better ones.
+
+The tables also include an **oracle** diagnostic: ground-truth-based selection from the same candidate pool. The gap between the verifier and oracle shows room to make better use of the model's candidate diversity. This gives us two directions for improving prediction: learn a stronger scene distribution, and develop better ways to check its samples.
+
+<details markdown="1">
+<summary>How the verifier computes and combines its evidence</summary>
+
+**Correspondences and pair spacing.** RAFT-Large is run in both directions. A correspondence from $x$ to $x'=x+F_{ij}(x)$ is retained only if $x'$ is in bounds and
+
+$$
+\|F_{ij}(x)+F_{ji}(x')\|^2\leq 0.01\big(\|F_{ij}(x)\|^2+\|F_{ji}(x')\|^2\big)+0.5.
+$$
+
+The consistency check filters unreliable correspondences before geometric fitting. For an anchor $i$, the gap is $\operatorname{clip}(\operatorname{round}(\tau/\operatorname{median}_x\|F_{i,i+1}(x)\|),1,12)$. The target $\tau$ is 16 px except for dense pose, which uses 32 px. It is shared across benchmarks within each protocol. Sparse depth pairs each endpoint with real interior neighbours at 1, 1.5, 2, and 2.5 times its adaptive gap. The verifier processes images at 288 × 384 and evaluates residuals on a stride-2 pixel grid.
+
+**Depth evidence.** A five-point essential-matrix estimate uses up to 6,000 consistent correspondences, RANSAC probability 0.999, and a 1 px threshold, followed by pose recovery. The resulting unit-translation camera is shared across depth candidates. In the current implementation, this estimate is cached using the intrinsics of the first candidate processed. Candidate depths are normalized in inverse depth, and a two-parameter affine gauge is fitted by texture-weighted least squares. Pixels require more than 0.5 px of predicted parallax; the fit retains pixels within the 80th percentile of the perpendicular parallax residual. These filters reduce contamination from motion not explained by the camera model. The `corr` readout measures the texture-weighted along-parallax discrepancy; `epi` measures the texture-weighted perpendicular residual over valid pixels. `photo` is the mean absolute RGB difference under the gauged warp, and `feat` is mean cosine distance between DINOv2 ViT-S/14 features under that warp.
+
+**Depth aggregation.** Within each scene and pair, each named readout is z-normalized across candidates. The normalized readouts are combined with equal weight, then candidates are ranked within the pair. Pair weights use the interquartile spread across candidates (`disc`); pairs that cannot distinguish candidates carry little weight. Weighted mean rank gives the final candidate score. This uses pool statistics for normalization, discrimination weighting, and ranking, but does not use a consensus depth or camera as geometric evidence.
+
+**Pose evidence and aggregation.** For candidate camera-to-world transforms, the relative camera from $i$ to $j$ is $T_p=\mathrm{c2w}_j^{-1}\mathrm{c2w}_i$. The image-derived relative pose is estimated with that candidate's own intrinsics. Translation angle `t`, rotation angle `r`, and the median Sampson residual `samp` were considered; the selected rules use only `t`. Pair angles are averaged per candidate, then candidates are ranked. With a single readout, ranking preserves its ordering. Sparse trajectory pairs without a saved candidate camera are skipped; the method does not invent missing poses.
+
+**Rule selection.** Pair recipes, readout combinations, and motion targets were assessed using leave-one-benchmark-out selection within each task and protocol. The held-out benchmark is excluded when choosing its rule. Sparse depth and sparse pose select the same rule in every fold. The table above gives the final task-level rules. Ground-truth metrics are used for this offline rule-selection study and for evaluation, not as inputs when scoring a new scene.
+
+**Abstention.** If no usable pair remains for a scene, the verifier abstains. Its reported performance for that scene is the expected metric of a random draw from the candidate pool, rather than a ground-truth-based fallback choice.
+
+</details>
+
+<!-- VIDEO-SEARCH: Place a candidate-selection demonstration here. Show actual verifier scores and the selected candidate; reserve GT errors for an explicitly labelled evaluation reveal. -->
+
+## 7 · What this changes, and what remains difficult
+
+The results suggest that generation and geometric prediction can reinforce each other when they are learned as parts of the same scene model. Geometry helps constrain visual generation. Learning appearance and camera motion can improve depth, including through training examples without depth labels. A generative formulation also provides alternative predictions that can be checked at inference time.
+
+The current model operates on short clips at modest resolution, and repeated sampling adds inference cost. Specialized systems remain stronger in some settings, and the gains from search depend on the quality of the visual evidence. These are useful directions for extending the approach to longer videos, larger models, and more effective verification.
+
+A useful next step is to improve how candidates are checked, and eventually use that evidence during denoising rather than only after a full completion. The central idea is already useful: appearance, depth, and camera motion can be learned together, with the observed parts of a scene determining which question the model answers.
+
+*This post accompanies UGG: Unified Generative Geometry Model, by Amani Kiruga, Zhiyi Li, Ruojin Cai, Hansen Lillemark, Xiaoshan Wu, Ayush Tewari, and Yilun Du. The project used computing resources at the Kempner Institute at Harvard University.*
+
+<!-- RELEASE-LINKS: Add the public preprint and final project-page URLs when the coordinated release is ready. -->
+
 
 <script>
 (function() {
@@ -523,3 +587,4 @@ The headline finding is that **one model + one mask is enough**. A 1.3B-paramete
   }
 })();
 </script>
+
