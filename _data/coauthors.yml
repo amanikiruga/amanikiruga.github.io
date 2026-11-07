@@ -71,6 +71,8 @@
 "Wu":
   - firstname: ["Zhaofeng"]
     url: https://zhaofengwu.github.io/
+  - firstname: ["Xiaoshan"]
+    url: https://candy-crusher.github.io/xiaoshanwu.github.io/
 
 "Schärli":
   - firstname: ["Nathanael"]
@@ -83,6 +85,8 @@
 "Li":
   - firstname: ["Shuang"]
     url: https://people.csail.mit.edu/lishuang
+  - firstname: ["Zhiyi"]
+    url: https://sky-lzy.github.io/
 
 "Du":
   - firstname: ["Yilun"]
@@ -91,3 +95,43 @@
 "Mordatch":
   - firstname: ["Igor"]
     url: https://scholar.google.com/citations?user=Vzr1RukAAAAJ&hl=en
+
+"Tewari":
+  - firstname: ["Ayush"]
+    url: https://ayushtewari.com/
+
+"Sitzmann":
+  - firstname: ["Vincent"]
+    url: https://www.vincentsitzmann.com/
+
+"Hamilton":
+  - firstname: ["Mark"]
+    url: https://mhamilton.net/
+
+"Tenenbaum":
+  - firstname: ["Joshua", "Joshua B.", "J.B."]
+    url: https://web.mit.edu/cocosci/josh.html
+
+"Freeman":
+  - firstname: ["William", "William T.", "W.T."]
+    url: https://billf.mit.edu/
+
+"Cai":
+  - firstname: ["Ruojin"]
+    url: https://ruojincai.github.io/
+
+"Lillemark":
+  - firstname: ["Hansen"]
+    url: https://hansenlillemark.com/
+
+"Xu":
+  - firstname: ["Guowei"]
+    url: https://guoweixu.com/
+
+"Qi":
+  - firstname: ["Zhenting"]
+    url: https://zhentingqi.github.io/
+
+"Lakkaraju":
+  - firstname: ["Himabindu", "Hima"]
+    url: https://himalakkaraju.github.io/

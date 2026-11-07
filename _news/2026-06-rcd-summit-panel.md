@@ -5,4 +5,4 @@ inline: true
 related_posts: false
 ---
 
-Panelist on "Generative & Agentic AI in Research" at the [Harvard RCD Summit 2026](https://rc.harvard.edu/2026/05/01/harvard-rcd-summit-2026/).
+I was invited to be a panelist on "Generative & Agentic AI in Research" at the [Harvard RCD Summit 2026](https://rc.harvard.edu/2026/05/01/harvard-rcd-summit-2026/).
