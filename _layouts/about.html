@@ -56,7 +56,42 @@ layout: homepage/default
   {% if page.selected_papers -%}
   <h2 style="margin-top: 1rem;"><a href="{{ '/publications/' | relative_url }}" style="color: inherit;">publications</a>
   </h2>
+  <div class="pub-toggle" role="tablist">
+    <button type="button" class="pub-toggle-btn active" data-target="pubs-selected" aria-selected="true">selected</button>
+    <button type="button" class="pub-toggle-btn" data-target="pubs-all" aria-selected="false">all</button>
+  </div>
+  <div id="pubs-selected">
   {%- include selected_papers.html %}
+  </div>
+  <div id="pubs-all" style="display: none;">
+    <div class="publications">
+      {% bibliography -f {{ site.scholar.bibliography }} %}
+    </div>
+  </div>
+  <style>
+    .pub-toggle { display: flex; gap: 1rem; margin: 0.1rem 0 0.75rem; }
+    .pub-toggle-btn {
+      font-size: 0.9rem; padding: 0 0 0.1rem; cursor: pointer; background: none;
+      border: none; border-bottom: 2px solid transparent;
+      color: var(--global-text-color-light); transition: color 0.15s, border-color 0.15s;
+    }
+    .pub-toggle-btn:hover { color: var(--global-theme-color); }
+    .pub-toggle-btn.active { color: var(--global-theme-color); border-bottom-color: var(--global-theme-color); }
+    .pub-toggle-btn:focus { outline: none; }
+    .pub-toggle-btn:focus-visible { outline: 2px solid var(--global-theme-color); outline-offset: 2px; }
+  </style>
+  <script>
+    document.querySelectorAll('.pub-toggle-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.pub-toggle-btn').forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on);
+          document.getElementById(b.dataset.target).style.display = on ? '' : 'none';
+        });
+      });
+    });
+  </script>
   {%- endif %}
 
 
